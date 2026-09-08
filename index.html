@@ -13,16 +13,21 @@
 <div id="app" class="loading">Loading…</div>
 <script>
   // ======== CONFIG: paste your Apps Script web app URL (ends in /exec) ========
-  window.QP_API = 'https://script.google.com/macros/s/AKfycbzFNw5Wo_1q_lfmSmhiu9giEpYxX_zVqvtqAPrVm8_F7Ecea5a40lw1cLGhZZkshvEe/exec
-';
+  window.QP_API = 'https://script.google.com/macros/s/AKfycbzFNw5Wo_1q_lfmSmhiu9giEpYxX_zVqvtqAPrVm8_F7Ecea5a40lw1cLGhZZkshvEe/exec';
   // ===========================================================================
   // Everything else (look, behavior) is served by the Apps Script project, so updates never touch this file.
   (async () => {
     const app = document.getElementById('app');
+    const slow = setTimeout(() => { app.textContent = 'Waking up the server…'; }, 4000);
     try {
-      const r = await fetch(window.QP_API + '?asset=student&v=' + Date.now());
-      if (!r.ok) throw new Error(r.status);
-      app.className = ''; app.innerHTML = await r.text();
+      const ctl = new AbortController();
+      const kill = setTimeout(() => ctl.abort(), 30000);
+      const r = await fetch(window.QP_API + '?asset=student&v=' + Date.now(), { signal: ctl.signal });
+      clearTimeout(kill); clearTimeout(slow);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const html = await r.text();
+      if (html.indexOf('Quick Poll student app') < 0) throw new Error('unexpected response — is the latest Code.gs deployed?');
+      app.className = ''; app.innerHTML = html;
       // scripts inserted via innerHTML don't run — re-create them in order
       for (const old of [...app.querySelectorAll('script')]) {
         await new Promise(res => {
@@ -32,7 +37,7 @@
           if (!old.src) res();
         });
       }
-    } catch (e) { app.textContent = 'Could not load the poll — check your connection and try again.'; }
+    } catch (e) { clearTimeout(slow); app.className = 'loading'; app.textContent = 'Could not load the poll (' + (e.name === 'AbortError' ? 'timed out' : e.message) + '). Check your connection and try again.'; }
   })();
 </script>
 </body>
