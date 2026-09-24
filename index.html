@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Quick Poll</title>
+<!-- shell v5 -->
 <style>
   body { margin:0; background:#f6f7f9; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
   #app.loading { padding:40px 20px; color:#6b7280; text-align:center; font-size:16px; }
@@ -16,28 +17,49 @@
   window.QP_API = 'https://script.google.com/macros/s/AKfycbzFNw5Wo_1q_lfmSmhiu9giEpYxX_zVqvtqAPrVm8_F7Ecea5a40lw1cLGhZZkshvEe/exec';
   // ===========================================================================
   // Everything else (look, behavior) is served by the Apps Script project, so updates never touch this file.
+  // After the first visit the poll page is kept on the phone, so it opens instantly. If the network won't let
+  // this page reach Google (some campus networks stall these requests), the phone is moved to the Apps Script
+  // version of the page, keeping its ID so it stays linked.
+  window.QP_SHELL = 'github';
+  const STORE = 'qp_app_copy';
+  const app = document.getElementById('app');
+  const params = new URLSearchParams(location.search);
+  const room = (params.get('room') || 'main').replace(/[^\w-]/g, '').slice(0, 20) || 'main';
+  let device = /^[A-Za-z0-9]{8,40}$/.test(params.get('d') || '') ? params.get('d') : '';
+  try { if (!device) device = localStorage.getItem('qp_device') || ''; } catch (e) {}
+  if (!device) device = 'd' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  try { localStorage.setItem('qp_device', device); } catch (e) {}
+  function fallback() { location.replace(window.QP_API + '?room=' + encodeURIComponent(room) + '&d=' + encodeURIComponent(device)); }
+  function fetchApp(ms) {
+    const ctl = new AbortController(), kill = setTimeout(() => ctl.abort(), ms);
+    return fetch(window.QP_API + '?asset=student&v=' + Date.now(), { signal: ctl.signal })
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+      .then(html => { if (html.indexOf('QP_API') < 0) throw new Error('unexpected response'); return html; })
+      .finally(() => clearTimeout(kill));
+  }
+  async function mount(html) {
+    app.className = ''; app.innerHTML = html;
+    for (const old of [...app.querySelectorAll('script')]) {   // scripts inserted via innerHTML don't run: re-create them
+      await new Promise(res => {
+        const el = document.createElement('script');
+        if (old.src) { el.src = old.src; el.onload = el.onerror = res; } else { el.textContent = old.textContent; }
+        old.replaceWith(el);
+        if (!old.src) res();
+      });
+    }
+  }
+  function save(html) { try { localStorage.setItem(STORE, html); } catch (e) {} }
+  function saved() { try { const h = localStorage.getItem(STORE); return h && h.indexOf('QP_API') >= 0 ? h : null; } catch (e) { return null; } }
   (async () => {
-    const app = document.getElementById('app');
-    const slow = setTimeout(() => { app.textContent = 'Waking up the server…'; }, 4000);
-    try {
-      const ctl = new AbortController();
-      const kill = setTimeout(() => ctl.abort(), 30000);
-      const r = await fetch(window.QP_API + '?asset=student&v=' + Date.now(), { signal: ctl.signal });
-      clearTimeout(kill); clearTimeout(slow);
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const html = await r.text();
-      if (html.indexOf('QP_API') < 0) throw new Error('unexpected response — is the latest Code.gs deployed?');
-      app.className = ''; app.innerHTML = html;
-      // scripts inserted via innerHTML don't run — re-create them in order
-      for (const old of [...app.querySelectorAll('script')]) {
-        await new Promise(res => {
-          const el = document.createElement('script');
-          if (old.src) { el.src = old.src; el.onload = el.onerror = res; } else { el.textContent = old.textContent; }
-          old.replaceWith(el);
-          if (!old.src) res();
-        });
-      }
-    } catch (e) { clearTimeout(slow); app.className = 'loading'; app.textContent = 'Could not load the poll (' + (e.name === 'AbortError' ? 'timed out' : e.message) + '). Check your connection and try again.'; }
+    const copy = saved();
+    if (copy) {                                         // instant: the copy on this phone (it falls back by itself if needed)
+      await mount(copy);
+      fetchApp(60000).then(save).catch(() => {});       // refresh it quietly for next time
+      return;
+    }
+    const slow = setTimeout(() => { app.textContent = 'Connecting\u2026'; }, 2500);
+    try { const html = await fetchApp(6000); clearTimeout(slow); save(html); await mount(html); }
+    catch (e) { clearTimeout(slow); app.textContent = 'Switching to the backup page\u2026'; fallback(); }
   })();
 </script>
 </body>
