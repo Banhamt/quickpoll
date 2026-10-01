@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Quick Poll</title>
-<!-- shell v5 -->
+<!-- shell v6 -->
 <style>
   body { margin:0; background:#f6f7f9; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
   #app.loading { padding:40px 20px; color:#6b7280; text-align:center; font-size:16px; }
@@ -54,7 +54,14 @@
     const copy = saved();
     if (copy) {                                         // instant: the copy on this phone (it falls back by itself if needed)
       await mount(copy);
-      fetchApp(60000).then(save).catch(() => {});       // refresh it quietly for next time
+      // check for a newer version; if there is one, save it and reload once so the update shows right away
+      fetchApp(60000).then(fresh => {
+        if (fresh === copy) return;
+        save(fresh);
+        let h = 0; for (let i = 0; i < fresh.length; i++) h = (h * 31 + fresh.charCodeAt(i)) | 0;   // fingerprint of this version
+        let seen = false; try { seen = sessionStorage.getItem('qp_updated') === String(h); sessionStorage.setItem('qp_updated', String(h)); } catch (e) {}
+        if (!seen) location.reload();                   // once per new version, so it can never loop
+      }).catch(() => {});
       return;
     }
     const slow = setTimeout(() => { app.textContent = 'Connecting\u2026'; }, 2500);
